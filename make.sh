@@ -1,5 +1,6 @@
 #!/bin/sh
 ./clean.sh
+mkdir build/
 cd build/
 cmake -DCMAKE_TOOLCHAIN_FILE=../DevkitArm3DS.cmake ../
 cmake -DCMAKE_TOOLCHAIN_FILE=../DevkitArm3DS.cmake ../
