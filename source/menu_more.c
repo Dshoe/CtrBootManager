@@ -4,11 +4,17 @@
 #include "arm9/source/hid.h"
 
 #else
+
 #include <3ds.h>
+#include <stdio.h>
 #include <string.h>
 #include "menu_netloaderarm9.h"
+
 #endif
-#include "gfx.h"
+
+#include <strings.h>
+#include "config.h"
+#include "draw.h"
 #include "utility.h"
 #include "loader.h"
 #include "menu.h"
@@ -17,10 +23,12 @@
 #ifdef ARM9
 #define MENU_COUNT 4
 static char menu_item[4][64] = {"File browser", "Settings", "Reboot", "PowerOff"};
+#define SETTING_ID 1
 #else
 #define MENU_COUNT 6
 static char menu_item[6][64] = {"File browser", "Netload 3dsx",
                                  "Netload arm9", "Settings", "Reboot", "PowerOff"};
+#define SETTING_ID 3
 #endif
 
 static int menu_index = 0;
@@ -32,15 +40,21 @@ int menu_choose() {
     memset(&picked, 0, sizeof(file_s));
     pick_file(&picked, "/");
 
-    if (strlen(picked.path) > 0) {
-        return load(picked.path, 0);
+    int pathLength = 0;
+    if ((pathLength = strlen(picked.path)) > 0) {
+        int offset = ( pathLength > 3 && strcasecmp(&picked.path[pathLength-3], "dat") == 0 ) ? 0x12000 : 0;
+        return load(picked.path, offset, NULL, 0, config->splashTopDef, config->splashBotDef);
     }
 
     return -1;
 }
 
 int menu_more() {
+    
+    if (START_DRIVE_RO)
+        sprintf(menu_item[SETTING_ID], "Informations");
 
+    menu_password();
     menu_index = 0;
 
     while (aptMainLoop()) {
@@ -57,6 +71,12 @@ int menu_more() {
             menu_index--;
             if (menu_index < 0)
                 menu_index = MENU_COUNT - 1;
+        }
+        else if (kDown & KEY_RIGHT) {
+            menu_index = (menu_index == MENU_COUNT - 1) ? 0 : (MENU_COUNT - 1);
+        }
+        else if (kDown & KEY_LEFT) {
+            menu_index = (menu_index == 0) ?  (MENU_COUNT - 1) : 0;
         }
         else if (kDown & KEY_A) {
             if (menu_index == 0 && menu_choose() == 0) {
@@ -110,7 +130,10 @@ static void draw() {
             drawInfo("Browse for a file to boot");
             break;
         case 1:
-            drawInfo("Edit boot settings");
+            if (START_DRIVE_RO)
+                drawInfo("See informations");
+            else
+                drawInfo("Edit boot settings");
             break;
         case 2:
             drawInfo("Reboot the 3ds...");
@@ -129,7 +152,10 @@ static void draw() {
             drawInfo("Netload a file (arm9) from the computer with nc");
             break;
         case 3:
-            drawInfo("Edit boot settings");
+            if (START_DRIVE_RO)
+                drawInfo("See informations");
+            else
+                drawInfo("Edit boot settings");
             break;
         case 4:
             drawInfo("Reboot the 3ds...");
@@ -142,5 +168,5 @@ static void draw() {
             break;
     }
 
-    gfxSwap();
+    swapFrameBuffers();
 }

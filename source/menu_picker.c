@@ -4,16 +4,19 @@
 #include "arm9/source/hid.h"
 #include "arm9/source/fatfs/ff.h"
 #include "memory.h"
+
 #else
+
 #include <3ds.h>
 #include <sys/dirent.h>
-#include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #endif
 
-#include "gfx.h"
+#include <strings.h>
+#include "draw.h"
 #include "picker.h"
 #include "utility.h"
 #include "config.h"
@@ -52,7 +55,11 @@ void parse_file(struct dirent *file) {
         const char *ext = get_filename_ext(file->d_name);
         if (strcasecmp(ext, "bin") != 0
             && strcasecmp(ext, "dat") != 0
+        #ifdef ARM9
+            && strcasecmp(ext, "firm") != 0)
+        #else
             && strcasecmp(ext, "3dsx") != 0)
+        #endif
             return;
     }
 
@@ -146,19 +153,22 @@ static void draw() {
 
         drawItemN(i == picker->file_index, 47, 16 * y, picker->files[i].name);
         if (i == picker->file_index && !picker->files[i].isDir) {
-            drawInfo("Press (A) to launch\nPress (X) to add to boot menu");
-
+            if (START_DRIVE_RO)
+                drawInfo("Press (A) to launch");
+            else
+                drawInfo("Press (A) to launch\nPress (X) to add to boot menu");
         }
         y++;
     }
 
-    gfxSwap();
+    swapFrameBuffers();
 }
 
 void pick_file(file_s *picked, const char *path) {
 
 #ifdef ARM9
     picker = (picker_s *) PTR_PICKER;
+    int curDrive = getDefaultDrive();
 #else
     picker = malloc(sizeof(picker_s));
 #endif
@@ -184,42 +194,42 @@ void pick_file(file_s *picked, const char *path) {
             time(&t_start); // reset held timer
         }
 #endif
-        if (kDown & KEY_DOWN) {
-            picker->file_index++;
+        if (kDown & KEY_DOWN || kDown & KEY_RIGHT) {
+            picker->file_index += (kDown & KEY_DOWN) ? 1 : MAX_LINE;
             if (picker->file_index >= picker->file_count)
-                picker->file_index = 0;
+                picker->file_index = (kDown & KEY_DOWN || picker->file_index == picker->file_count - 1 + MAX_LINE) ? 0 : (picker->file_count - 1);
 #ifndef ARM9
             time(&t_start);
 #endif
-        } else if (kHeld & KEY_DOWN) {
+        } else if (kHeld & KEY_DOWN || kHeld & KEY_RIGHT) {
 #ifndef ARM9
             time(&t_end);
 #endif
             t_elapsed = t_end - t_start;
             if (t_elapsed > 0) {
-                picker->file_index++;
+                picker->file_index += (kDown & KEY_DOWN) ? 1 : MAX_LINE;
                 if (picker->file_index >= picker->file_count)
-                    picker->file_index = 0;
+                    picker->file_index = (kDown & KEY_DOWN || picker->file_index == picker->file_count - 1 + MAX_LINE) ? 0 : (picker->file_count - 1);
                 svcSleep(100);
             }
         }
 
-        if (kDown & KEY_UP) {
-            picker->file_index--;
+        if (kDown & KEY_UP || kDown & KEY_LEFT) {
+            picker->file_index -= (kDown & KEY_UP) ? 1 : MAX_LINE;
             if (picker->file_index < 0)
-                picker->file_index = picker->file_count - 1;
+                picker->file_index = (kDown & KEY_UP || picker->file_index == -MAX_LINE) ? (picker->file_count - 1) : 0;
 #ifndef ARM9
             time(&t_start);
 #endif
-        } else if (kHeld & KEY_UP) {
+        } else if (kHeld & KEY_UP || kDown & KEY_LEFT) {
 #ifndef ARM9
             time(&t_end);
 #endif
             t_elapsed = t_end - t_start;
             if (t_elapsed > 0) {
-                picker->file_index--;
+                picker->file_index -= (kDown & KEY_UP) ? 1 : MAX_LINE;
                 if (picker->file_index < 0)
-                    picker->file_index = picker->file_count - 1;
+                    picker->file_index = (kDown & KEY_UP || picker->file_index == -MAX_LINE) ? (picker->file_count - 1) : 0;
                 svcSleep(100);
             }
         }
@@ -230,7 +240,13 @@ void pick_file(file_s *picked, const char *path) {
                 if (!picker->files[index].isDir) {
                     if (confirm(0, "Launch \"%s\" ?", picker->files[index].name)) {
                         strncpy(picked->name, picker->files[index].name, 128);
+                    #ifdef ARM9
+                        if (curDrive != getDefaultDrive())
+                            computeFullPath(picker->files[index].path, picked->path);
+                        else
+                    #endif
                         strncpy(picked->path, picker->files[index].path, 256);
+                        
                         picked->isDir = picker->files[index].isDir;
                         picked->size = picker->files[index].size;
                         break;
@@ -240,22 +256,37 @@ void pick_file(file_s *picked, const char *path) {
                     get_dir(picker->files[index].path);
                 }
             }
-        } else if (kDown & KEY_X) {
+        } else if (kDown & KEY_X && !START_DRIVE_RO) {
             int index = picker->file_index;
             if (!picker->files[index].isDir) {
                 const char *ext = get_filename_ext(picker->files[index].name);
+                int noOffsetReq = 1;
+                if (strcasecmp(ext, "bin") == 0 || (noOffsetReq = strcasecmp(ext, "dat")) == 0
 #ifdef ARM9
-                if (strcasecmp(ext, "bin") == 0 || strcasecmp(ext, "dat") == 0) {
+                    || strcasecmp(ext, "firm") == 0) {
 #else
-                if (strcasecmp(ext, "3dsx") == 0) {
+                    || strcasecmp(ext, "3dsx") == 0) {
 #endif
                     if (confirm(3, "Add entry to boot menu: \"%s\" ?", picker->files[index].name)) {
-                        if (config->count > CONFIG_MAX_ENTRIES - 1) {
-                            debug("Maximum entries reached (%i)\n", CONFIG_MAX_ENTRIES);
-                        } else if (configAddEntry(picker->files[index].name, picker->files[index].path, 0) == 0) {
-                            debug("Added entry: %s\n", picker->files[index].name);
-                        } else {
-                            debug("Error adding entry: %s\n", picker->files[index].name);
+                        if (config->count > config->maxCount - 1) {
+                            debug("Maximum entries reached (%i)\n", config->maxCount);
+                        }
+                        else
+                        {
+                        #ifdef ARM9
+                            char entryPath[256];
+                            if (curDrive != getDefaultDrive())
+                                computeFullPath(picker->files[index].path, entryPath);
+                            else
+                                strncpy(entryPath, picker->files[index].path, 256);
+                        #else
+                            char* entryPath = picker->files[index].path;
+                        #endif
+                            if (configAddEntry(picker->files[index].name, entryPath, noOffsetReq?0:0x12000) == 0) {
+                                debug("Added entry: %s\n", picker->files[index].name);
+                            } else {
+                                debug("Error adding entry: %s\n", picker->files[index].name);
+                            }
                         }
                     }
                 }
@@ -280,8 +311,27 @@ void pick_file(file_s *picked, const char *path) {
             // enter new dir
             get_dir(picker->now_path);
         }
+    #ifdef ARM9
+        else if (kDown & KEY_SELECT) {
+            int prevDrive = curDrive;
+            do {
+                curDrive = (curDrive+1)%MANAGED_DRIVES_COUNT;
+            } while (!switchCurrentDrive(curDrive));
+
+            if (curDrive != prevDrive)
+            {
+                memset(picker, 0, sizeof(picker_s));
+                picker->file_count = 0;
+                picker->file_index = 0;
+
+                get_dir(path);
+            }
+        }
+    #endif
     }
-#ifndef ARM9
+#ifdef ARM9
+    setCurrentDriveAsDefault();
+#else
     free(picker);
 #endif
 }

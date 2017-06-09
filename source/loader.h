@@ -1,12 +1,22 @@
 #ifndef _loader_h_
 #define _loader_h_
 
-int load(char *path, long offset);
+typedef struct {
+    char memToSearch[256];
+    char memOverwrite[256];
+    int memToSearchSize;
+    int memOverwriteSize;
+    int occurence;
+} binary_patch;
 
-int load_bin(char *path, long offset);
+int load(char *path, long offset, binary_patch* patches, int patchesCount, char* splashTop, char* splashBot);
 
-#ifndef ARM9
-int load_3dsx(char *path);
+void screensBehavior(char* splashTop, char* splashBot);
+
+#ifdef ARM9
+int load_firm(char *path, binary_patch* patches, int patchesCount, char* splashTop, char* splashBot);
+#else
+int load_3dsx(char *path, char* splashTop, char* splashBot);
 #endif
 
 #endif // _loader_h_
